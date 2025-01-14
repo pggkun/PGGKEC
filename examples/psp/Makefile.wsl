@@ -1,0 +1,15 @@
+TARGET = pggk_crossplay_psp_sample
+OBJS = source/main.o
+
+INCDIR = ../../include
+CFLAGS = -O0 -Wall -g
+CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti
+ASFLAGS = $(CFLAGS)
+
+LIBDIR = LIBDIR  = /usr/local/pspdev/psp/lib
+LIBS = -lstdc++
+
+EXTRA_TARGETS = EBOOT.PBP
+
+PSPSDK=$(shell psp-config --pspsdk-path)
+include $(PSPSDK)/lib/build.mak

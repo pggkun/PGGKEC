@@ -55,8 +55,10 @@
     #define closeSocket close
 #endif
 
-#ifdef __vita__
+#if defined(__vita__)
     #define printf psvDebugScreenPrintf
+#elif defined(__psp__)
+    #define printf pspDebugScreenPrintf
 #endif
 
 #define DATA_BUFFER_SIZE 256
@@ -154,14 +156,11 @@ socket_t create_client_socket(const char *ip)
 {
     memset(&servaddr,0, sizeof(servaddr));
     memset(&cliaddr, 0, sizeof(cliaddr));
-
     socket_t sockfd;
     servaddr.sin_addr.s_addr = inet_addr(ip); 
     servaddr.sin_port = htons(PORT); 
     servaddr.sin_family = AF_INET; 
-      
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-
     if(connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
     {
         printf("error on connect to server\n");
@@ -333,7 +332,9 @@ class agent
             to_send_acks.push(*ack);
         }
 
-        virtual void send_message(message &m) {}
+        virtual void send_message(message &m) {
+            printf("send message virtual\n");
+        }
 
         virtual void listen_for_messages()
         {

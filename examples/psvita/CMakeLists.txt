@@ -11,8 +11,8 @@ endif()
 project(pggk_crossplay_vita_example)
 include("${VITASDK}/share/vita.cmake" REQUIRED)
 
-set(VITA_APP_NAME "HTTP BSD socket")
-set(VITA_TITLEID  "VSDK00011")
+set(VITA_APP_NAME "PGGKEC Vita Example")
+set(VITA_TITLEID  "PGGK00001")
 set(VITA_VERSION  "01.00")
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall")
