@@ -1,5 +1,5 @@
-#ifndef __AGENT__H
-#define __AGENT__H
+#ifndef __PGGKEC__H
+#define __PGGKEC__H
 
 #include <iostream>
 #include <queue>
