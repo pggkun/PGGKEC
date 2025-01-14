@@ -202,69 +202,6 @@ int send_to(socket_t *sockfd, struct sockaddr* client, char *buffer)
           client, sizeof(*client));
 }
 
-//Deprecated, usar receive_message_as_server em outra thread
-int receive_as_server(socket_t *sockfd, std::vector<connection> &connections, char *buffer)
-{
-    sockaddr_in temp_addr;
-    memset(&temp_addr, 0,sizeof(temp_addr));
-    
-    int res = recvfrom(*sockfd, buffer, sizeof(message), 0,
-         (struct sockaddr*)&temp_addr, (socklen_t*)&len);
-    if(res > 0)
-    {
-        printf("msg received\n");
-        bool already_connected = false;
-
-        message received_message = parse_message(buffer);
-        if(strcmp(received_message.data, DISCOVERY_MSG) == 0)
-        {
-            message disc;
-            disc.source = 0;
-            disc.destiny = 0;
-            disc.index = 0;
-            strcpy(disc.data, DISCOVERY_MSG);
-            char disc_response[sizeof(message)];
-            memcpy(disc_response, &disc, sizeof(message));
-            send_to(sockfd, (struct sockaddr*)&temp_addr, disc_response);
-            return 1;
-        }
-
-        for(auto conn : connections)
-        {
-            if((temp_addr.sin_addr.s_addr == conn.addr.sin_addr.s_addr) && (temp_addr.sin_port == conn.addr.sin_port))
-            {
-                already_connected = true;
-                break;
-            }
-        }
-        if(!already_connected)
-        {
-            uint8_t new_id = connections.size() + 1;
-            connection new_conn;
-            new_conn.id = new_id;
-            new_conn.message_index = 1;
-            new_conn.addr = temp_addr;
-            strcpy(new_conn.device, "UNKNOWN");
-
-            connections.push_back(new_conn);
-            const char* nip = inet_ntoa(temp_addr.sin_addr);
-            printf("New client connected: %s, id: %d\n", nip, new_id);
-
-            //enviar o id do client
-            message resp;
-            resp.source = 0;
-            resp.destiny = new_id;
-            resp.index = 0;
-            strcpy(resp.data, CONNECTION_MSG);
-            char response[sizeof(message)];
-            memcpy(response, &resp, sizeof(message));
-
-            send_to(sockfd, (struct sockaddr*)&temp_addr, response);
-        }
-    }
-    return res;
-}
-
 //if new connection: return 0, else return 1;
 int after_receive_as_server(socket_t *sockfd, std::vector<connection> &connections, char *buffer, sockaddr_in &temp_addr)
 {
@@ -367,9 +304,15 @@ class agent
             to_send_messages.clear();
         }
 
-        virtual void process_message(const message &m)
+        virtual void default_process_message(const message &m)
         {
             return;
+        }
+        void (agent::*process_message)(const message&) = &agent::default_process_message;
+
+        void execute_message(const message& m) 
+        {
+            (this->*process_message)(m);
         }
 
         void send_ack(const message &m)
@@ -384,8 +327,8 @@ class agent
 
             //send (add to ack queue)
             
-            printf("to send ack: ");
-            print_message(*ack);
+            // printf("to send ack: ");
+            // print_message(*ack);
 
             to_send_acks.push(*ack);
         }
@@ -416,7 +359,7 @@ class agent
             if(strcmp(m.data, "ack") != 0)
             {
                 //process_message
-                process_message(m);
+                execute_message(m);
                 if(m.index != 0)
                     send_ack(m);
             }
@@ -456,11 +399,6 @@ class server_agent : public agent
             connected = true;
 
             THREAD_CREATE(&listen_thread, receive_messages_as_server, this);
-            // {
-            //     printf("Erro ao criar listen thread.\n");
-            //     perror("erro: ");
-            //     exit(EXIT_FAILURE);
-            // }
             printf("Listen Thread criado com sucesso!\n");
             MUTEX_INIT(&received_messages_mutex);
         }
@@ -474,24 +412,8 @@ class server_agent : public agent
         std::vector<sockaddr_in> addrs;
         std::vector<connection> connections;
 
-        void process_message(const message &m) override 
+        void default_process_message(const message &m) override 
         {
-            // printf("Server processing message: ");
-            // print_message(m);
-        }
-
-        sockaddr_in *get_addr_by_index(const uint8_t index)
-        {
-            for(auto conn : connections)
-            {
-                printf("id: %d, conn.id: %d|%d\n", index, conn.id, &conn.addr);
-                if(conn.id == index)
-                {
-                    printf("aqui mesmo\n");
-                    return &conn.addr;
-                }
-            }
-            return NULL;
         }
 
         void send_message(message &m) override
@@ -504,7 +426,6 @@ class server_agent : public agent
 
                 char buffer[sizeof(message)] = {0};
                 memcpy(buffer, &m, sizeof(message));
-                // send_as_server(m_sockfd, buffer);
                 MUTEX_LOCK(&received_messages_mutex);
                 broadcast_message(buffer);
                 MUTEX_UNLOCK(&received_messages_mutex);
@@ -524,15 +445,6 @@ class server_agent : public agent
             }
         }
 
-        void listen_for_messages() override
-        {
-            char buff[sizeof(message)];
-            if(receive_as_server(&m_sockfd, connections, buff) > 0)
-            {
-                message m = parse_message(buff);
-                received_messages.push(m);
-            }
-        }
 
         void broadcast_message(char *buff)
         {
@@ -576,7 +488,6 @@ class server_agent : public agent
                 {
                     if(conn.id == to_send_acks.front().source)
                     {
-                        printf("addr[%d] id[%d], ack sent: ", conn.addr, conn.id);
                         print_message(to_send_acks.front());
                         char buffer[sizeof(message)] = {0};
                         memcpy(buffer, &to_send_acks.front(), sizeof(message));
@@ -626,7 +537,7 @@ class client_agent : public agent
 
         uint8_t server_message_index = 0;
 
-        void process_message(const message &m) override
+        void default_process_message(const message &m) override
         {
             //se for mensagem de conexão
             if(strcmp(m.data, CONNECTION_MSG) == 0)
@@ -686,8 +597,6 @@ class client_agent : public agent
                 int recv = recvfrom(m_sockfd, recv_buffer, sizeof(message), 0, NULL, NULL);
                 if (recv > 0) 
                 {
-                    printf("Recebido: %d bytes\n", recv);
-
                     message m;
                     memcpy(&m, recv_buffer, sizeof(message));
                     received_messages.push(m);
