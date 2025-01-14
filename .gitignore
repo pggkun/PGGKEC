@@ -17,6 +17,8 @@ build/
 *.vpk
 *.3dsx
 *.elf
+*.PBP
+*.SFO
 
 *.dSYM/
 *.stackdump
