@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #ifdef _WIN32
+    #define _WIN32_WINNT 0x0601
     #include <winsock2.h>
     #include <ws2tcpip.h>
     #include <windows.h>
@@ -64,6 +65,7 @@
 #define DATA_BUFFER_SIZE 256
 
 #define DISCOVERY_MSG "DSMSG"
+#define DISCOVERY_RESP "DSRES"
 #define CONNECTION_MSG "CNMSG"
 #define DISCONNECTION_MSG "DNMSG"
 #define REGULAR_MSG "RGMSG"
@@ -214,9 +216,10 @@ int after_receive_as_server(socket_t *sockfd, std::vector<connection> &connectio
         disc.source = 0;
         disc.destiny = 0;
         disc.index = 0;
-        strcpy(disc.data, DISCOVERY_MSG);
+        strcpy(disc.data, DISCOVERY_RESP);
         char disc_response[sizeof(message)];
         memcpy(disc_response, &disc, sizeof(message));
+        printf("echo to '%s'\n", inet_ntoa(temp_addr.sin_addr));
         send_to(sockfd, (struct sockaddr*)&temp_addr, disc_response);
         return 1;
     }
@@ -646,6 +649,145 @@ class client_agent : public agent
             }
         }
 };
+
+std::string get_device_ip()
+{
+    #if defined(__3DS__)
+        sockaddr_in tmp;
+        tmp.sin_addr.s_addr = gethostid();
+        printf("Device IP: %s\n",inet_ntoa(tmp.sin_addr));
+        return std::string(inet_ntoa(tmp.sin_addr));
+
+    #elif defined(__PSP__)
+        union SceNetApctlInfo info;
+		if (sceNetApctlGetInfo(8, &info) != 0)
+			strcpy(info.ip, "");
+        printf("Device IP: %s\n",info.ip);
+        return std::string(info.ip);
+
+    #elif defined(_WIN32)
+        char hostname[256];
+        struct addrinfo hints, *res, *ptr;
+
+        if (gethostname(hostname, sizeof(hostname)) == SOCKET_ERROR) {
+            printf("Erro ao obter o nome do host: %d\n", WSAGetLastError());
+            WSACleanup();
+            return "";
+        }
+
+        printf("Nome do host: %s\n", hostname);
+
+        ZeroMemory(&hints, sizeof(hints));
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM; 
+        hints.ai_protocol = IPPROTO_TCP; 
+
+        if (getaddrinfo(hostname, NULL, &hints, &res) != 0) {
+            printf("getaddrinfo falhou: %d\n", WSAGetLastError());
+            WSACleanup();
+            return "";
+        }
+        std::string ip_address;
+        for (ptr = res; ptr != NULL; ptr = ptr->ai_next)
+        {
+            struct sockaddr_in *sockaddr_ipv4 = (struct sockaddr_in *)ptr->ai_addr;
+            ip_address = inet_ntoa(sockaddr_ipv4->sin_addr);
+            break;
+            // printf("Device IP: %s\n",ip_address.c_str());
+        }
+        printf("Device IP: %s\n",ip_address.c_str());
+        return ip_address;
+    #endif
+    return "";
+}
+
+std::string server_discovery()
+{
+    std::string base_ip = get_device_ip();
+
+    socket_t sockfd;
+    struct sockaddr_in svr_addr, cli_addr;
+    char buffer[sizeof(message)];
+    fd_set read_fds;
+    struct timeval timeout;
+
+    // Criar socket UDP
+    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("Erro ao criar o socket");
+        // exit(EXIT_FAILURE);
+    }
+
+    // Configurar o endereço do cliente (quem está enviando)
+    memset(&cli_addr, 0, sizeof(cli_addr));
+    cli_addr.sin_family = AF_INET;
+    cli_addr.sin_addr.s_addr = INADDR_ANY;
+    cli_addr.sin_port = htons(PORT);
+
+    // Bind do socket para permitir receber respostas
+    if (bind(sockfd, (struct sockaddr*)&cli_addr, sizeof(cli_addr)) < 0) {
+        perror("Erro ao fazer bind do socket");
+        // close(sockfd);
+        // exit(EXIT_FAILURE);
+    }
+
+    // Loop para enviar mensagens para 192.168.0.1 a 192.168.0.255
+    std::string network_prefix = base_ip.substr(0, base_ip.find_last_of('.') + 1);
+    for (int i = 1; i <= 255; ++i) {
+        std::string target_ip = network_prefix + std::to_string(i);
+        printf("asking: '%s'\n", target_ip.c_str());
+
+        memset(&svr_addr, 0, sizeof(svr_addr));
+        svr_addr.sin_family = AF_INET;
+        svr_addr.sin_port = htons(PORT);
+
+        if (inet_pton(AF_INET, target_ip.c_str(), &svr_addr.sin_addr) <= 0) {
+            perror("Erro ao converter o endereço IP");
+            // std::cerr << "Erro ao converter o endereço IP: " << target_ip << std::endl;
+            continue;
+        }
+
+        // Enviar mensagem de discovery
+        message disc;
+        disc.source = 0;
+        disc.destiny = 0;
+        disc.index = 0;
+        strcpy(disc.data, DISCOVERY_MSG);
+        char disc_message[sizeof(message)];
+        memcpy(disc_message, &disc, sizeof(message));
+
+        if (sendto(sockfd, disc_message, sizeof(message), 0,
+                   (struct sockaddr*)&svr_addr, sizeof(svr_addr)) < 0) {
+            perror("Erro ao enviar mensagem");
+            continue;
+        }
+
+        // Configurar o timeout para receber respostas
+        FD_ZERO(&read_fds);
+        FD_SET(sockfd, &read_fds);
+        timeout.tv_sec = 0;  // 1 segundo
+        timeout.tv_usec = 10;
+
+        // Verificar se há resposta
+        if (select(sockfd + 1, &read_fds, nullptr, nullptr, &timeout) > 0) {
+            socklen_t addr_len = sizeof(svr_addr);
+            ssize_t recv_len = recvfrom(sockfd, buffer, sizeof(buffer) - 1, 0,
+                                        (struct sockaddr*)&svr_addr, &addr_len);
+            if (recv_len > 0) {
+                message discr = parse_message(buffer);
+                if(strcmp(discr.data, DISCOVERY_RESP)==0)
+                {
+                    std::string response_ip = inet_ntoa(svr_addr.sin_addr);
+                    close(sockfd);
+                    return response_ip;
+                }
+            }
+        }
+    }
+
+    close(sockfd);
+    printf("No server was found\n");
+    return ""; // Nenhum servidor respondeu
+}
 
 THREAD_FUNC_RETURN receive_messages_as_server(void *agent_addr) 
 {

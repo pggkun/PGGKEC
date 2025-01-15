@@ -124,6 +124,8 @@ int main(int argc, char **argv)
 		if (sceNetApctlGetInfo(8, &info) != 0)
 			strcpy(info.ip, "unknown IP");
 
+		get_device_ip();
+
 		char *ip = "192.168.0.9";
 		//"172.22.128.157"
 		printf("ip: '%s'\n", ip);

@@ -15,10 +15,13 @@ int main()
     SOC_buffer = (u32*)memalign(SOC_ALIGN, SOC_BUFFERSIZE);
     socInit(SOC_buffer, SOC_BUFFERSIZE);
 
-    char *ip = "192.168.0.9";
+    std::string server_found = server_discovery();
+    printf("server found at: %s", server_found.c_str());
+
+    // char *ip = "192.168.0.9";
     //"172.22.128.157"
-    printf("ip: '%s'", ip);
-    client_agent my_agent(ip);
+    // printf("ip: '%s'", ip);
+    client_agent my_agent(server_found.c_str());
 
     //=====================================================
     // MAIN LOOP

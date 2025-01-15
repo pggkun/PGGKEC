@@ -6,16 +6,14 @@
 int main()
 {
     WSADATA wsaData;
-
-    // Inicializa o WinSock
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) 
+    {
         std::cerr << "Falha ao inicializar o WinSock. Erro: " << WSAGetLastError() << std::endl;
         return 1;
     }
 
-    // socket_t server_sockfd = create_server_socket();
+    get_device_ip();
     server_agent my_agent;
-    // my_agent.m_sockfd = &server_sockfd;
 
     //======================================================
     // START THREAD DE INPUT
@@ -40,7 +38,6 @@ int main()
     //=====================================================
     THREAD_JOIN(&thread_id);
     //=====================================================
-
 
     WSACleanup();
     return 0;

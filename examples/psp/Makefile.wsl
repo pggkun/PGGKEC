@@ -1,5 +1,5 @@
 TARGET = pggk_crossplay_psp_sample
-OBJS = source/main.o
+OBJS = source/client.o
 
 INCDIR = ../../include
 CFLAGS = -O0 -Wall -g
