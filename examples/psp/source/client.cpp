@@ -127,10 +127,9 @@ int main(int argc, char **argv)
 		get_device_ip();
 
 		char *ip = "192.168.0.9";
-		//"172.22.128.157"
+
 		printf("ip: '%s'\n", ip);
 		client_agent my_agent(ip);
-		printf("client created!\n");
 
 		SceCtrlData ctrl;
 		while (true)

@@ -16,11 +16,8 @@ int main()
     socInit(SOC_buffer, SOC_BUFFERSIZE);
 
     std::string server_found = server_discovery();
-    printf("server found at: %s", server_found.c_str());
+    printf("server found at: %s\n", server_found.c_str());
 
-    // char *ip = "192.168.0.9";
-    //"172.22.128.157"
-    // printf("ip: '%s'", ip);
     client_agent my_agent(server_found.c_str());
 
     //=====================================================
@@ -37,10 +34,8 @@ int main()
         {
             message m = {my_agent.uid, 0, 0, "salve do 3ds\n"};
             my_agent.send_message(m);
-            // printf("MANDOU\n");
         }
-        my_agent.update();
-        // printf("ATUALIZOU\n");        
+        my_agent.update();   
     }
     return 0;
 }

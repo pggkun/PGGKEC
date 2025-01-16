@@ -165,7 +165,7 @@ socket_t create_client_socket(const char *ip)
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if(connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
     {
-        printf("error on connect to server\n");
+        perror("error on connect to server\n");
     }
     len = sizeof(cliaddr);
     return sockfd;
@@ -206,7 +206,7 @@ int send_to(socket_t *sockfd, struct sockaddr* client, char *buffer)
 //if new connection: return 0, else return 1;
 int after_receive_as_server(socket_t *sockfd, std::vector<connection> &connections, char *buffer, sockaddr_in &temp_addr)
 {
-    printf("msg received\n");
+    // printf("msg received\n");
     bool already_connected = false;
 
     message received_message = parse_message(buffer);
@@ -356,9 +356,12 @@ class agent
                 printf("invalid message\n");
                 return;
             }
-
-            printf("received: ");
-            print_message(m);
+            
+            if(strcmp(m.data, "ack") != 0 && m.index == 0)
+            {
+                printf("received: ");
+                print_message(m);
+            }
 
             if(strcmp(m.data, "ack") != 0)
             {
@@ -378,6 +381,7 @@ class agent
                         if (it->index == m.index) 
                         {
                             it = to_send_messages.erase(it);
+                            printf("callback to message: %d\n", m.index);
                             return;
                         } else {
                             ++it;
@@ -492,7 +496,7 @@ class server_agent : public agent
                 {
                     if(conn.id == to_send_acks.front().source)
                     {
-                        print_message(to_send_acks.front());
+                        // print_message(to_send_acks.front());
                         char buffer[sizeof(message)] = {0};
                         memcpy(buffer, &to_send_acks.front(), sizeof(message));
                         send_to(&m_sockfd, (sockaddr *)&conn.addr, buffer);
@@ -507,8 +511,8 @@ class server_agent : public agent
 
             for(auto msg : to_send_messages)
             {
-                printf("msg sent [RELIABLE]: ");
-                print_message(msg);
+                // printf("msg sent [RELIABLE]: ");
+                // print_message(msg);
 
                 char buffer[sizeof(message)] = {0};
                 memcpy(buffer, &msg, sizeof(message));
@@ -579,6 +583,8 @@ class client_agent : public agent
             {
                 message_index++;
                 to_send_messages.push_back(m);
+                printf("sending r-message: ");
+                print_message(m);
             }
         }
 
@@ -626,8 +632,8 @@ class client_agent : public agent
 
             while(!to_send_acks.empty())
             {
-                printf("ack sent: ");
-                print_message(to_send_acks.front());
+                // printf("ack sent: ");
+                // print_message(to_send_acks.front());
                 to_send_acks.pop();
                 total_ack_sent++;
             }
@@ -638,8 +644,8 @@ class client_agent : public agent
             {
                 if (FD_ISSET(m_sockfd, &write_fds)) 
                 {
-                    printf("stack: %d, msg sent [RELIABLE]: ", to_send_messages.size());
-                    print_message(msg);
+                    // printf("stack: %d, msg sent [RELIABLE]: ", to_send_messages.size());
+                    // print_message(msg);
 
                     char buffer[sizeof(message)] = {0};
                     memcpy(buffer, &msg, sizeof(message));
@@ -703,6 +709,7 @@ std::string get_device_ip()
 
 std::string server_discovery()
 {
+#ifndef _WIN32
     std::string base_ip = get_device_ip();
 
     socket_t sockfd;
@@ -711,28 +718,22 @@ std::string server_discovery()
     fd_set read_fds;
     struct timeval timeout;
 
-    // Criar socket UDP
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("Erro ao criar o socket");
-        // exit(EXIT_FAILURE);
     }
 
-    // Configurar o endereço do cliente (quem está enviando)
     memset(&cli_addr, 0, sizeof(cli_addr));
     cli_addr.sin_family = AF_INET;
     cli_addr.sin_addr.s_addr = INADDR_ANY;
     cli_addr.sin_port = htons(PORT);
 
-    // Bind do socket para permitir receber respostas
     if (bind(sockfd, (struct sockaddr*)&cli_addr, sizeof(cli_addr)) < 0) {
         perror("Erro ao fazer bind do socket");
-        // close(sockfd);
-        // exit(EXIT_FAILURE);
     }
 
-    // Loop para enviar mensagens para 192.168.0.1 a 192.168.0.255
     std::string network_prefix = base_ip.substr(0, base_ip.find_last_of('.') + 1);
-    for (int i = 1; i <= 255; ++i) {
+    for (int i = 1; i <= 255; ++i) 
+    {
         std::string target_ip = network_prefix + std::to_string(i);
         printf("asking: '%s'\n", target_ip.c_str());
 
@@ -742,11 +743,9 @@ std::string server_discovery()
 
         if (inet_pton(AF_INET, target_ip.c_str(), &svr_addr.sin_addr) <= 0) {
             perror("Erro ao converter o endereço IP");
-            // std::cerr << "Erro ao converter o endereço IP: " << target_ip << std::endl;
             continue;
         }
 
-        // Enviar mensagem de discovery
         message disc;
         disc.source = 0;
         disc.destiny = 0;
@@ -761,13 +760,11 @@ std::string server_discovery()
             continue;
         }
 
-        // Configurar o timeout para receber respostas
         FD_ZERO(&read_fds);
         FD_SET(sockfd, &read_fds);
-        timeout.tv_sec = 0;  // 1 segundo
+        timeout.tv_sec = 0;
         timeout.tv_usec = 10;
 
-        // Verificar se há resposta
         if (select(sockfd + 1, &read_fds, nullptr, nullptr, &timeout) > 0) {
             socklen_t addr_len = sizeof(svr_addr);
             ssize_t recv_len = recvfrom(sockfd, buffer, sizeof(buffer) - 1, 0,
@@ -786,7 +783,8 @@ std::string server_discovery()
 
     close(sockfd);
     printf("No server was found\n");
-    return ""; // Nenhum servidor respondeu
+#endif
+    return "";
 }
 
 THREAD_FUNC_RETURN receive_messages_as_server(void *agent_addr) 
