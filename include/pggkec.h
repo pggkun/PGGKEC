@@ -836,7 +836,10 @@ THREAD_FUNC_RETURN update_messages(void * agent_addr)
         {
             m.index = m_agent->message_index;
             if(m.index == 0)
+            {
                 m.index = 1;
+                m_agent->message_index++;
+            }
         }else
         {
             m.index = 0;
