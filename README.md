@@ -10,7 +10,7 @@ PGGK Easy Crossplay (PGGKEC) is a study project I am developing to facilitate cr
 - [ ] NDS
 - [ ] Wii
 - [ ] WiiU
-- [ ] Switch
+- [x] Switch
 - [ ] Android
 
 ## Requirements
@@ -23,7 +23,7 @@ All
 - [MinGW 32](https://sourceforge.net/projects/mingw/)
 - [Ubuntu WSL2](https://documentation.ubuntu.com/wsl/en/latest/guides/install-ubuntu-wsl2/)
 
-3DS
+3DS and Switch
 - [DevkitPro Toolchain](https://github.com/devkitPro/installer/releases) (Make sure to enable the correct platforms)
 
 PSP (Install these requirements using WSL2)
