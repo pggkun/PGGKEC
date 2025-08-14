@@ -19,14 +19,12 @@ PSP_HEAP_SIZE_KB(-2048);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER);
 PSP_MAIN_THREAD_STACK_SIZE_KB(1024);
 
-/* Exit callback */
 int exit_callback(int arg1, int arg2, void *common)
 {
 	sceKernelExitGame();
 	return 0;
 }
 
-/* Callback thread */
 int CallbackThread(SceSize args, void *argp)
 {
 	int cbid;
@@ -38,7 +36,6 @@ int CallbackThread(SceSize args, void *argp)
 	return 0;
 }
 
-/* Sets up the callback thread and returns its thread id */
 int SetupCallbacks(void)
 {
 	int thid = 0;
@@ -53,13 +50,11 @@ int SetupCallbacks(void)
 	return thid;
 }
 
-/* Connect to an access point */
 int connect_to_apctl(int config)
 {
 	int err;
 	int stateLast = -1;
 
-	/* Connect using the first profile */
 	err = sceNetApctlConnect(config);
 	if (err != 0)
 	{
@@ -83,10 +78,9 @@ int connect_to_apctl(int config)
 			stateLast = state;
 		}
 		if (state == 4)
-			break; // connected with static IP
+			break;
 
-		// wait a little before polling again
-		sceKernelDelayThread(50 * 1000); // 50ms
+		sceKernelDelayThread(50 * 1000);
 	}
 	printf(MODULE_NAME ": Connected!\n");
 
@@ -118,7 +112,6 @@ int main(int argc, char **argv)
 
 	if (connect_to_apctl(1))
 	{
-		// connected, get my IPADDR and run test
 		union SceNetApctlInfo info;
 
 		if (sceNetApctlGetInfo(8, &info) != 0)
@@ -126,7 +119,7 @@ int main(int argc, char **argv)
 
 		get_device_ip();
 
-		char *ip = "192.168.0.9";
+		char *ip = "192.168.0.12";
 
 		printf("ip: '%s'\n", ip);
 		client_agent my_agent(ip);
@@ -141,7 +134,7 @@ int main(int argc, char **argv)
 				m.source = my_agent.uid;
 				m.destiny = 0;
 				m.index = 0;
-				strcpy(m.data, "salve do PSP\n");
+				strcpy(m.data, "Hello from PSP\n");
 
 				my_agent.send_message(m);
 			}

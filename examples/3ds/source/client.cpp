@@ -20,9 +20,6 @@ int main()
 
     client_agent my_agent(server_found.c_str());
 
-    //=====================================================
-    // MAIN LOOP
-    //=====================================================
     while (true)
     {
         gspWaitForVBlank();
