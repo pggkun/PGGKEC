@@ -19,6 +19,8 @@ build/
 *.elf
 *.PBP
 *.SFO
+*.nro
+*.nacp
 
 *.dSYM/
 *.stackdump
