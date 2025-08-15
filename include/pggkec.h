@@ -59,6 +59,7 @@
 #if defined(__vita__)
     #define printf psvDebugScreenPrintf
 #elif defined(__psp__)
+    #include <pspnet_inet.h>
     #define printf pspDebugScreenPrintf
 #endif
 
@@ -77,6 +78,9 @@ struct message
     uint8_t index; //0 = not reliable
     char data[DATA_BUFFER_SIZE];
 };
+
+static uint8_t g_recvbuf[sizeof(message)];
+static uint8_t g_sendbuf[sizeof(message)];
 
 message parse_message(const char *buffer)
 {
@@ -132,7 +136,7 @@ struct connection
     char device[12] = {0};
 };
 
-int send_as_client(socket_t *sockfd, char *buffer);
+int send_as_client(socket_t sockfd, char *buffer);
 
 socket_t create_server_socket()
 {
@@ -165,7 +169,7 @@ socket_t create_client_socket(const char *ip)
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if(connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
     {
-        perror("error on connect to server\n");
+        printf("error on connect to server\n");
     }
     len = sizeof(cliaddr);
     return sockfd;
@@ -259,12 +263,12 @@ int after_receive_as_server(socket_t *sockfd, std::vector<connection> &connectio
     return 1;
 }
 
-int send_as_client(socket_t *sockfd, char *buffer)
+int send_as_client(socket_t sockfd, char *buffer)
 {
-    int bytes_sent = sendto(*sockfd, buffer, sizeof(message), 0, (struct sockaddr*)&servaddr, sizeof(servaddr)); 
+    int bytes_sent = sendto(sockfd, buffer, sizeof(message), 0, (struct sockaddr*)&servaddr, sizeof(servaddr)); 
     if (bytes_sent == -1) 
     {
-        perror("Erro ao enviar");
+        bytes_sent = send(sockfd, buffer, sizeof(message), 0); 
     }
     return bytes_sent;
 }
@@ -575,7 +579,7 @@ class client_agent : public agent
 
                 char buffer[sizeof(message)] = {0};
                 memcpy(buffer, &m, sizeof(message));
-                send_as_client(&m_sockfd, buffer);
+                send_as_client(m_sockfd, buffer);
                 total_message_sent++;
                 return;                
             }
@@ -599,21 +603,26 @@ class client_agent : public agent
             timeout.tv_sec = 0;
             timeout.tv_usec = 10;
 
-            select(m_sockfd + 1, &read_fds, &write_fds, NULL, &timeout);
+            int ready = select(m_sockfd + 1, &read_fds, &write_fds, NULL, &timeout);
+            // if (ready <= 0) return;
 
-            char recv_buffer[sizeof(message)] = {0};
+            memset(g_recvbuf, 0, sizeof(message));
             if (FD_ISSET(m_sockfd, &read_fds)) 
             {
-                int recv = recvfrom(m_sockfd, recv_buffer, sizeof(message), 0, NULL, NULL);
+                sockaddr_storage src{};
+                socklen_t srclen = sizeof(src);
+
+                int recv = recvfrom(m_sockfd, g_recvbuf, sizeof(message), 0, reinterpret_cast<sockaddr*>(&src), &srclen);
                 if (recv > 0) 
                 {
                     message m;
-                    memcpy(&m, recv_buffer, sizeof(message));
+                    memcpy(&m, g_recvbuf, sizeof(message));
                     received_messages.push(m);
                 } else if (recv == 0) {
                     printf("Conexão encerrada pelo remetente.\n");
-                    return;
+                    // return;
                 } else {
+                    printf("sock: %d\n", m_sockfd);
                     perror("Erro ao receber dados");
                     return;
                 }
@@ -649,7 +658,7 @@ class client_agent : public agent
 
                     char buffer[sizeof(message)] = {0};
                     memcpy(buffer, &msg, sizeof(message));
-                    send_as_client(&m_sockfd, buffer);
+                    send_as_client(m_sockfd, buffer);
                     total_message_sent++;
                 }
             }

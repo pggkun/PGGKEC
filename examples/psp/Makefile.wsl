@@ -6,8 +6,9 @@ CFLAGS = -O0 -Wall -g
 CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti
 ASFLAGS = $(CFLAGS)
 
-LIBDIR = LIBDIR  = /usr/local/pspdev/psp/lib
-LIBS = -lstdc++
+LIBDIR = /usr/local/pspdev/psp/lib
+LIBS = -lstdc++ 
+BUILD_PRX=1
 
 EXTRA_TARGETS = EBOOT.PBP
 
