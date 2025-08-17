@@ -1,5 +1,6 @@
 #include "pggkec.h"
 #include <stdarg.h>
+#include <stdbool.h>
 #include <switch.h>
 
 void cprintf(const char *fmt, ...) 
@@ -41,7 +42,7 @@ void print_local_ip(void)
 {
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) {
-        cprintf("Erro ao criar socket\n");
+        cprintf("Error creating socket\n");
         return;
     }
 
@@ -119,20 +120,8 @@ int main(int argc, char **argv)
         consoleUpdate(NULL);
     }
 
-    client_agent my_agent(ip);
+    client_agent *my_agent = create_client_agent(ip);
     cprintf("client created\n");
-
-    pthread_t thread_id;
-    void * thread_res;
-    int rstatus;
-    
-    rstatus = pthread_create(&thread_id, NULL, update_messages, &my_agent);
-    if(rstatus != 0)
-    {
-        cprintf ("Error creating thread.\n");
-        exit(EXIT_FAILURE);
-    }
-    cprintf ("Thread created successfully!\n");
 
     while(appletMainLoop())
     {
@@ -143,26 +132,18 @@ int main(int argc, char **argv)
 
         if (kDown & HidNpadButton_A) 
         {
-            message m;
-            m.source = my_agent.uid;
-            m.destiny = 0;
-            m.index = 0;
-            strcpy(m.data, "Hello from Switch\n");
+            message *m = malloc(sizeof(message));
+            m->source = my_agent->uid;
+            m->destiny = 0;
+            m->index = 0;
+            strcpy(m->data, "Hello from Switch\n");
 
-            my_agent.send_message(m);
+            queue_enqueue(my_agent->to_send_non_reliable, m);
         }
-        my_agent.update();
+        update_client_agent(my_agent);
 
         consoleUpdate(NULL);
     }
-
-    rstatus = pthread_join(thread_id, &thread_res);
-    if(rstatus != 0)
-    {
-        cprintf ("Error while waiting for the thread to finish.\n");
-        exit(EXIT_FAILURE);
-    }
-    cprintf ("Thread finished! Return = %s\n", (char *)thread_res);
 
     socketExit();
     consoleExit(NULL);
