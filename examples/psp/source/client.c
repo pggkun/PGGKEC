@@ -6,6 +6,7 @@
 #include <pspsdk.h>
 #include <psputility.h>
 #include <string.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include "pggkec.h"
 #include <psputility_netconf.h>
@@ -220,8 +221,6 @@ int main(int argc, char **argv)
 		if (sceNetApctlGetInfo(8, &info) != 0)
 			strcpy(info.ip, "unknown IP");
 
-		get_device_ip();
-
 		char ip_str[16];
 
 		SceCtrlData ctrl;
@@ -239,23 +238,23 @@ int main(int argc, char **argv)
 		}
 
 		printf("server ip:  '%s'\n", ip_str);
-		client_agent my_agent(ip_str);
+		client_agent *my_agent = create_client_agent(ip_str);
 
 		while (true)
 		{   
 			sceCtrlReadBufferPositive(&ctrl,1);
 			if(ctrl.Buttons & PSP_CTRL_CROSS)
 			{
-				message m;
-				m.source = my_agent.uid;
-				m.destiny = 0;
-				m.index = 0;
-				strcpy(m.data, "Hello from PSP\n");
+				message *m = malloc(sizeof(message));
+				m->source = my_agent->uid;
+				m->destiny = 0;
+				m->index = 0;
+				strcpy(m->data, "Hello from PSP\n");
 
-				my_agent.send_message(m);
+				queue_enqueue(my_agent->to_send_non_reliable, m);
 			}
 			
-			my_agent.update();
+			update_client_agent(my_agent);
 		}
 
 	}

@@ -2,13 +2,12 @@ TARGET = pggk_crossplay_psp_sample
 OBJS = source/client.o
 
 INCDIR = ../../include
-CFLAGS = -O0 -Wall -g
+CFLAGS = -O0 -Wall -g -DVERBOSE
 CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti
 ASFLAGS = $(CFLAGS)
 
 LIBDIR = /usr/local/pspdev/psp/lib
-LIBS = -lstdc++ 
-BUILD_PRX=1
+LIBS =
 
 EXTRA_TARGETS = EBOOT.PBP
 

@@ -26,8 +26,10 @@ include_directories(
   ../../include
 )
 
+add_definitions(-DVERBOSE)
+
 add_executable(${PROJECT_NAME}
-  source/client.cpp
+  source/client.c
   common/debugScreen.c
 )
 
