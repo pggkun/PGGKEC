@@ -481,6 +481,8 @@ int after_receive_as_server(socket_t *sockfd,
         resp.source = 0;
         resp.destiny = new_id;
         resp.index = 0;
+
+        //TODO: Connection message should be reliable
         strcpy(resp.data, CONNECTION_MSG);
 
         char response[sizeof(message)];
@@ -703,6 +705,7 @@ void client_receive_message(client_agent *m_agent, message *m)
 
             if(!found_message) return;
 
+            //TODO: add reliable callback here
             void * removed = vector_remove_at(m_agent->to_send_messages, index_at_vector);
             free(removed);
         }
@@ -977,6 +980,7 @@ void server_receive_message(server_agent *m_agent, message *m)
 
             if(!found_message) return;
 
+            //TODO: add reliable callback here
             void * removed = vector_remove_at(m_agent->to_send_messages, index_at_vector);
             free(removed);
         }
