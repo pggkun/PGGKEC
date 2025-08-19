@@ -679,7 +679,8 @@ void client_receive_message(client_agent *m_agent, message *m)
 
     if(strcmp(m->data, "ack") != 0)
     {
-        m_agent->message_callback(m_agent, m);
+        if(m_agent->message_callback != NULL)
+            m_agent->message_callback(m_agent, m);
         client_execute_message(m_agent, m);
         if(m->index != 0)
             client_send_ack(m_agent, m);
@@ -935,7 +936,10 @@ void server_receive_message(server_agent *m_agent, message *m)
     if(strcmp(m->data, "ack") != 0)
     {
         if(m->index == 0)
-            m_agent->message_callback(m_agent, m);
+        {
+            if(m_agent->message_callback != NULL)
+                m_agent->message_callback(m_agent, m);
+        }
         else
         {
             server_send_ack(m_agent, m);
@@ -948,7 +952,8 @@ void server_receive_message(server_agent *m_agent, message *m)
                     < m->index )
                     {
                         ((connection*)vector_get(m_agent->connections, i))->message_index = m->index;
-                        m_agent->message_callback(m_agent, m);
+                        if(m_agent->message_callback != NULL)
+                            m_agent->message_callback(m_agent, m);
                     }
                 }
             }
