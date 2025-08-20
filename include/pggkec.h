@@ -71,6 +71,29 @@ SOFTWARE.
     #define closeSocket closesocket
     typedef SOCKET socket_t;
     #define SOCKLEN_T int
+#elif defined(__3DS__)
+    #include <3ds.h>
+    typedef Thread thread_t;
+    typedef LightLock mutex_t;
+    #define STACKSIZE (2 * 1024)
+    #define THREAD_FUNC_RETURN void
+    #define THREAD_CREATE(t, func, param) \
+        (*(t) = threadCreate(func, param, STACKSIZE, 0x3F, -2, false))
+    #define THREAD_JOIN(t) \
+        threadJoin(*t, U64_MAX)
+    #define MUTEX_INIT(m) LightLock_Init(m)
+    #define MUTEX_DESTROY(m) free(m)
+    #define MUTEX_LOCK(m) LightLock_Lock(m)
+    #define MUTEX_UNLOCK(m) LightLock_Unlock(m)
+
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <unistd.h>
+    #define closeSocket close
+    typedef int socket_t;
+    #define SOCKLEN_T socklen_t
+    #define INVALID_SOCKET -1
 #else
     #include <pthread.h>
     typedef pthread_t thread_t;
@@ -84,7 +107,6 @@ SOFTWARE.
     #define MUTEX_DESTROY(m) pthread_mutex_destroy(m)
     #define MUTEX_LOCK(m) pthread_mutex_lock(m)
     #define MUTEX_UNLOCK(m) pthread_mutex_unlock(m)
-    #define closeSocket close
 
     #include <sys/socket.h>
     #include <netinet/in.h>
@@ -93,6 +115,7 @@ SOFTWARE.
     #define closeSocket close
     typedef int socket_t;
     #define SOCKLEN_T socklen_t
+    #define INVALID_SOCKET -1
 #endif
 
 #define DATA_BUFFER_SIZE 256
@@ -378,6 +401,20 @@ socket_t create_server_socket()
     bind(sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr));
     len = sizeof(cliaddr);
 
+    #if defined(_WIN32) || defined(_WIN64)
+        int ms = 200;
+        setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char*)&ms, sizeof(ms));
+    #elif defined(__vita__)
+        int flags = fcntl(sockfd, F_GETFL, 0);
+        flags |= O_NONBLOCK;
+        fcntl(sockfd, F_SETFL, flags);
+    #elif defined(__3DS__)
+        return sockfd;
+    #else
+        struct timeval tv = { .tv_sec = 0, .tv_usec = 200*1000 };
+        setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    #endif
+
     return sockfd;
 }
 
@@ -396,16 +433,6 @@ socket_t create_client_socket(const char *ip)
     }
     len = sizeof(cliaddr);
     return sockfd;
-}
-
-int receive(socket_t *sockfd, char *buffer)
-{
-    memset(buffer, 0,sizeof(message));
-    int received =  recvfrom(*sockfd, buffer, sizeof(message), 0,
-         (struct sockaddr*)&cliaddr, (socklen_t*)&len);
-    if(received < 0)
-        perror("error receiving: ");
-    return received;
 }
 
 int receive_from(socket_t *sockfd, char *buffer, struct sockaddr* caddr, socklen_t* addrlen)
@@ -576,6 +603,18 @@ THREAD_FUNC_RETURN receive_messages_as_server(void *agent_addr)
 {
     server_agent *m_agent = (server_agent *)(agent_addr);
     while (1) {
+        if(m_agent->m_sockfd == INVALID_SOCKET)
+        {
+            PGGKEC_LOG("Invalid Socket failure\n");
+            break;
+        }
+
+        if(!m_agent->connected)
+        {
+            PGGKEC_LOG("Closing server listen thread...\n");
+            break;
+        }
+
         memset(g_recvbuf, 0, sizeof(message));
         struct sockaddr_in temp_addr;
         socklen_t addrlen = sizeof(temp_addr);
@@ -1040,7 +1079,14 @@ void server_update(server_agent *m_agent)
 void destroy_server_agent(server_agent *sa)
 {
     sa->connected = 0;
+
     THREAD_JOIN(&sa->listen_thread);
+
+    if (sa->m_sockfd != INVALID_SOCKET) 
+    {
+        closeSocket(sa->m_sockfd);
+        sa->m_sockfd = INVALID_SOCKET;
+    }
 
     while (!queue_is_empty(sa->received_messages))
     {
@@ -1074,7 +1120,14 @@ THREAD_FUNC_RETURN update_messages_as_server(void *agent_addr)
 
     while(1)
     {
-        if (!fgets(line, sizeof(line), stdin)) return 0;
+        if (!fgets(line, sizeof(line), stdin))
+        {
+        #ifdef __3DS__
+            return;
+        #else    
+            return 0;
+        #endif
+        }
 
         size_t len = strcspn(line, "\r\n");
         line[len] = '\0';
@@ -1112,7 +1165,14 @@ THREAD_FUNC_RETURN update_messages_as_client(void *agent_addr)
 
     while(1)
     {
-        if (!fgets(line, sizeof(line), stdin)) return 0;
+        if (!fgets(line, sizeof(line), stdin))
+        {
+        #ifdef __3DS__
+            return;
+        #else    
+            return 0;
+        #endif
+        }
 
         size_t len = strcspn(line, "\r\n");
         line[len] = '\0';
@@ -1155,6 +1215,19 @@ void client_agent_enqueue_non_reliable(client_agent* m_agent, uint8_t source, ui
     m->index = index;
     strcpy(m->data, data);
     queue_enqueue(m_agent->to_send_non_reliable, m);
+}
+
+void server_agent_broadcast_message(server_agent* m_agent, const char* data)
+{
+    message m;
+    m.source = 0;
+    m.destiny = 0;
+    m.index = 0;
+    strcpy(m.data, data);
+
+    char buff[sizeof(message)];
+    memcpy(buff, &m, sizeof(message));
+    server_broadcast_message(m_agent, buff);
 }
 
 #endif
