@@ -5,6 +5,7 @@
 #include <psp2/kernel/processmgr.h>
 #include <psp2/ctrl.h>
 #include <psp2/net/net.h>
+#include <psp2/net/netctl.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdbool.h>
@@ -40,7 +41,6 @@ void build_ip(char* out, size_t sz, const uint8_t in[4])
 
 void draw_ip_editor(void)
 {
-    printf("\x1b[H\x1b[2J"); // clear
     printf("Use D-Pad to edit IP, CROSS to send\n\n");
     for(int i=0;i<4;i++){
         if(i==g_ip_cursor) printf("[");
@@ -49,6 +49,7 @@ void draw_ip_editor(void)
         if(i!=3) printf(".");
     }
     printf("\n(LEFT/RIGHT select, UP/DOWN change)\n");
+    sceKernelDelayThread(1*1000);
 }
 
 void update_ip_editor(const SceCtrlData* ctrl)
@@ -56,31 +57,39 @@ void update_ip_editor(const SceCtrlData* ctrl)
     uint32_t pressed = ctrl->buttons & ~g_prev_buttons;
     g_prev_buttons = ctrl->buttons;
 
-    if(pressed & SCE_CTRL_LEFT)  g_ip_cursor = (g_ip_cursor+3)&3;
-    if(pressed & SCE_CTRL_RIGHT) g_ip_cursor = (g_ip_cursor+1)&3;
-    if(pressed & SCE_CTRL_UP)    g_ip_octets[g_ip_cursor] = (uint8_t)clamp255(g_ip_octets[g_ip_cursor]+1);
-    if(pressed & SCE_CTRL_DOWN)  g_ip_octets[g_ip_cursor] = (uint8_t)clamp255(g_ip_octets[g_ip_cursor]-1);
+    if(pressed & SCE_CTRL_LEFT)  {
+        g_ip_cursor = (g_ip_cursor+3)&3;
+        printf("\x1b[H\x1b[2J");
+        draw_ip_editor();
+    }
+    if(pressed & SCE_CTRL_RIGHT) {
+        g_ip_cursor = (g_ip_cursor+1)&3;
+        printf("\x1b[H\x1b[2J");
+        draw_ip_editor();
+    }
+    if(pressed & SCE_CTRL_UP) {
+        g_ip_octets[g_ip_cursor] = (uint8_t)clamp255(g_ip_octets[g_ip_cursor]+1);
+        printf("\x1b[H\x1b[2J");
+        draw_ip_editor();
+    }
+    if(pressed & SCE_CTRL_DOWN) {
+        g_ip_octets[g_ip_cursor] = (uint8_t)clamp255(g_ip_octets[g_ip_cursor]-1);
+        printf("\x1b[H\x1b[2J");
+        draw_ip_editor();
+    }
+
 }
 
-int main(int argc, char *argv[])
+void client_behaviour()
 {
-	psvDebugScreenInit();
-
-	static char net_mem[1*1024*1024];
-	sceSysmoduleLoadModule(SCE_SYSMODULE_NET);
-    SceNetInitParam netInitParam = { net_mem, 1 * 1024 * 1024 };
-    sceNetInit(&netInitParam);
-
     SceCtrlData ctrl={};
-
     char ip[16]; build_ip(ip,sizeof(ip),g_ip_octets);
+    draw_ip_editor();
 
     while(1)
     {
         sceCtrlPeekBufferPositive(0, &ctrl, 1);
         update_ip_editor(&ctrl);
-        draw_ip_editor();
-
         if(ctrl.buttons == SCE_CTRL_CROSS)
         {
             build_ip(ip,sizeof(ip),g_ip_octets);
@@ -94,19 +103,106 @@ int main(int argc, char *argv[])
     while (true)
     {      
         sceCtrlReadBufferPositive(0,&ctrl,1);
-        if(ctrl.buttons == SCE_CTRL_CROSS)
+
+        uint32_t pressed = ctrl.buttons & ~g_prev_buttons;
+        g_prev_buttons = ctrl.buttons;
+        
+        if(pressed == SCE_CTRL_CROSS)
         {
             message *m = malloc(sizeof(message));
-            *m = (message){my_agent->uid, 0, 0, "Hello from Vita\n"};
+            *m = (message){my_agent->uid, 0, 0, "Hello from Vita"};
             queue_enqueue(my_agent->to_send_non_reliable, m);
         }
         
+        if(pressed & SCE_CTRL_START)
+		{
+			break;
+		}
+        
         update_client_agent(my_agent);
+    }
+	destroy_client_agent(my_agent);
+}
+
+void server_behaviour()
+{
+    SceCtrlData ctrl={};
+    server_agent *my_agent = create_server_agent();
+
+    while (true)
+    {      
+        sceCtrlReadBufferPositive(0,&ctrl,1);
+        uint32_t pressed = ctrl.buttons & ~g_prev_buttons;
+        g_prev_buttons = ctrl.buttons;
+        
+        if(pressed == SCE_CTRL_CROSS)
+        {
+            message *m = malloc(sizeof(message));
+            *m = (message){my_agent->uid, 0, 0, "Hello from Vita Server"};
+            server_send_message(my_agent, m);
+        }
+
+        if(pressed & SCE_CTRL_START)
+		{
+			break;
+		}
+        
+        server_update(my_agent);
+    }
+    printf("Closing server...\n");
+	destroy_server_agent(my_agent);
+}
+
+int main(int argc, char *argv[])
+{
+	psvDebugScreenInit();
+
+	static char net_mem[1*1024*1024];
+	sceSysmoduleLoadModule(SCE_SYSMODULE_NET);
+    SceNetInitParam netInitParam = { net_mem, 1 * 1024 * 1024 };
+    sceNetInit(&netInitParam);
+    sceNetCtlInit();
+
+    SceNetCtlInfo info = {0};
+    sceNetCtlInetGetInfo(SCE_NETCTL_INFO_GET_IP_ADDRESS, &info);
+
+    SceCtrlData ctrl={};
+		
+    while(true)
+    {
+        printf("\x1b[H\x1b[2J");
+        bool is_server = false;
+        printf("IP: %s\nPress (X) - Server\nPress (O) - Client\n", info.ip_address);
+        while(true)
+        {
+            sceCtrlReadBufferPositive(0,&ctrl,1);
+            uint32_t pressed = ctrl.buttons & ~g_prev_buttons;
+            g_prev_buttons = ctrl.buttons;
+
+            if(pressed & SCE_CTRL_CROSS)
+            {
+                is_server = true;
+                break;
+            }
+            else if(pressed & SCE_CTRL_CIRCLE)
+            {
+                break;
+            }
+            else if(pressed & SCE_CTRL_START)
+            {
+                return 0;
+            }
+        }
+        printf("\x1b[H\x1b[2J");
+
+        if(is_server)
+            server_behaviour();
+        else
+            client_behaviour();
     }
 
 	sceNetTerm();
 	sceSysmoduleUnloadModule(SCE_SYSMODULE_NET);
 	sceKernelDelayThread(~0);
-    destroy_client_agent(my_agent);
     return 0;
 }

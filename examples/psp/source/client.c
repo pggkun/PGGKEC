@@ -186,6 +186,91 @@ int connect_to_apctl(int config)
 	return 1;
 }
 
+void client_behaviour()
+{
+	char ip_str[16];
+
+	SceCtrlData ctrl;
+	while(true)
+	{
+		sceCtrlReadBufferPositive(&ctrl,1);
+		update_ip_editor(&ctrl);
+		draw_ip_editor();
+
+		if(ctrl.Buttons & PSP_CTRL_CROSS)
+		{
+			build_ip(ip_str, sizeof(ip_str), g_ip_octets);
+			break;
+		}
+	}
+	pspDebugScreenClear();
+
+	printf("server ip:  '%s'\n", ip_str);
+	client_agent *my_agent = create_client_agent(ip_str);
+
+	while (true)
+	{   
+		sceCtrlReadBufferPositive(&ctrl,1);
+		uint32_t pressed = ctrl.Buttons & ~g_prev_buttons;
+		g_prev_buttons = ctrl.Buttons;
+
+		if(pressed & PSP_CTRL_CROSS)
+		{
+			message *m = malloc(sizeof(message));
+			m->source = my_agent->uid;
+			m->destiny = 0;
+			m->index = 0;
+			strcpy(m->data, "Hello from PSP");
+
+			queue_enqueue(my_agent->to_send_non_reliable, m);
+		}
+
+		update_client_agent(my_agent);
+
+		if(pressed & PSP_CTRL_START)
+		{
+			break;
+		}
+	}
+	printf("Closing client...\n");
+	destroy_client_agent(my_agent);
+	pspDebugScreenClear();
+}
+
+void server_behaviour()
+{
+	SceCtrlData ctrl;
+	server_agent *my_agent = create_server_agent();
+
+	while (true)
+	{   
+		sceCtrlReadBufferPositive(&ctrl,1);
+		uint32_t pressed = ctrl.Buttons & ~g_prev_buttons;
+		g_prev_buttons = ctrl.Buttons;
+
+		if(pressed & PSP_CTRL_CROSS)
+		{
+			message m;
+			m.source = my_agent->uid;
+			m.destiny = 0;
+			m.index = 0;
+			strcpy(m.data, "Hello from PSP Server");
+
+			server_send_message(my_agent, &m);
+		}
+		
+		server_update(my_agent);
+
+		if(pressed & PSP_CTRL_START)
+		{
+			break;
+		}
+	}
+	printf("Closing server...\n");
+	destroy_server_agent(my_agent);
+	pspDebugScreenClear();
+}
+
 int main(int argc, char **argv)
 {
 	SceUID thid;
@@ -213,6 +298,7 @@ int main(int argc, char **argv)
 	{
 		netconf_connect_blocking();
 	}
+	pspDebugScreenClear();
 
 	if (true)
 	{
@@ -221,42 +307,39 @@ int main(int argc, char **argv)
 		if (sceNetApctlGetInfo(8, &info) != 0)
 			strcpy(info.ip, "unknown IP");
 
-		char ip_str[16];
-
 		SceCtrlData ctrl;
+		
 		while(true)
 		{
-			sceCtrlReadBufferPositive(&ctrl,1);
-			update_ip_editor(&ctrl);
-			draw_ip_editor();
-
-			if(ctrl.Buttons & PSP_CTRL_CROSS)
+			bool is_server = false;
+			printf("IP: %s\nPress (X) - Server\nPress (O) - Client\n", info.ip);
+			while(true)
 			{
-				build_ip(ip_str, sizeof(ip_str), g_ip_octets);
-				break;
+				sceCtrlReadBufferPositive(&ctrl,1);
+				uint32_t pressed = ctrl.Buttons & ~g_prev_buttons;
+				g_prev_buttons = ctrl.Buttons;
+
+				if(pressed & PSP_CTRL_CROSS)
+				{
+					is_server = true;
+					break;
+				}
+				else if(pressed & PSP_CTRL_CIRCLE)
+				{
+					break;
+				}
+				else if(pressed & PSP_CTRL_START)
+				{
+					return 0;
+				}
 			}
+			pspDebugScreenClear();
+
+			if(is_server)
+				server_behaviour();
+			else
+				client_behaviour();
 		}
-
-		printf("server ip:  '%s'\n", ip_str);
-		client_agent *my_agent = create_client_agent(ip_str);
-
-		while (true)
-		{   
-			sceCtrlReadBufferPositive(&ctrl,1);
-			if(ctrl.Buttons & PSP_CTRL_CROSS)
-			{
-				message *m = malloc(sizeof(message));
-				m->source = my_agent->uid;
-				m->destiny = 0;
-				m->index = 0;
-				strcpy(m->data, "Hello from PSP\n");
-
-				queue_enqueue(my_agent->to_send_non_reliable, m);
-			}
-			
-			update_client_agent(my_agent);
-		}
-
 	}
 
 	return 0;
