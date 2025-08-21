@@ -1,0 +1,22 @@
+CC_86 		:= i686-w64-mingw32-gcc -DVERBOSE
+CC_64 		:= x86_64-w64-mingw32-gcc -DVERBOSE
+
+LDFLAGS_86	:= -lws2_32 -static-libgcc -static-libstdc++
+IFLAGS_86	:= -I$(CURDIR)/../include
+
+LDFLAGS_64	:= -lws2_32
+IFLAGS_64	:= -I$(CURDIR)/../include
+
+.PHONY: clean
+
+x64: libpggkec.c
+	mkdir -p x64
+	$(CC_64) -shared libpggkec.c $(IFLAGS_64) $(LDFLAGS_64) -o x64/pggkec.dll
+	
+
+x86: libpggkec.c
+	mkdir -p x86
+	$(CC_86) -g -shared libpggkec.c $(IFLAGS_86) $(LDFLAGS_86) -o x86/pggkec.dll
+
+clean:
+	rm -rf x86 x64
