@@ -409,7 +409,7 @@ socket_t create_server_socket()
         flags |= O_NONBLOCK;
         fcntl(sockfd, F_SETFL, flags);
     #elif defined(__3DS__)
-        return sockfd;
+        fcntl(sockfd, F_SETFL, fcntl(sockfd, F_GETFL, 0) | O_NONBLOCK);
     #else
         struct timeval tv = { .tv_sec = 0, .tv_usec = 200*1000 };
         setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -431,6 +431,19 @@ socket_t create_client_socket(const char *ip)
     {
         PGGKEC_LOG("error on connect to server\n");
     }
+    #if defined(_WIN32) || defined(_WIN64)
+        int ms = 200;
+        setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char*)&ms, sizeof(ms));
+    #elif defined(__vita__)
+        int flags = fcntl(sockfd, F_GETFL, 0);
+        flags |= O_NONBLOCK;
+        fcntl(sockfd, F_SETFL, flags);
+    #elif defined(__3DS__)
+        fcntl(sockfd, F_SETFL, fcntl(sockfd, F_GETFL, 0) | O_NONBLOCK);
+    #else
+        struct timeval tv = { .tv_sec = 0, .tv_usec = 200*1000 };
+        setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    #endif
     len = sizeof(cliaddr);
     return sockfd;
 }
@@ -451,8 +464,17 @@ int send_as_server(socket_t *sockfd, char *buffer)
 
 int send_to(socket_t *sockfd, struct sockaddr* client, char *buffer)
 {
-    return sendto(*sockfd, buffer, sizeof(message), 0, 
+    int bytes_sent = sendto(*sockfd, buffer, sizeof(message), 0, 
           client, sizeof(*client));
+    if (bytes_sent == -1) 
+    {
+        perror("error sendto: ");
+        bytes_sent = send(*sockfd, buffer, sizeof(message), 0);
+        if(bytes_sent == -1)
+        {
+            perror("error send: ");
+        }
+    }
 }
 
 int after_receive_as_server(socket_t *sockfd,
@@ -515,7 +537,17 @@ int after_receive_as_server(socket_t *sockfd,
         char response[sizeof(message)];
         memcpy(response, &resp, sizeof(message));
 
-        send_to(sockfd, (struct sockaddr*)temp_addr, response);
+        int bytes_sent = sendto(*sockfd, response, sizeof(message), 0, 
+          (struct sockaddr*)temp_addr, sizeof(*temp_addr));
+        if (bytes_sent == -1) 
+        {
+            perror("error sendto: ");
+            bytes_sent = send(*sockfd, response, sizeof(message), 0);
+            if(bytes_sent == -1)
+            {
+                perror("error send: ");
+            }
+        }
         return 0;
     }
     return 1;
@@ -526,7 +558,12 @@ int send_as_client(socket_t sockfd, char *buffer)
     int bytes_sent = sendto(sockfd, buffer, sizeof(message), 0, (struct sockaddr*)&servaddr, sizeof(servaddr)); 
     if (bytes_sent == -1) 
     {
-        bytes_sent = send(sockfd, buffer, sizeof(message), 0); 
+        perror("error sendto: ");
+        bytes_sent = send(sockfd, buffer, sizeof(message), 0);
+        if(bytes_sent == -1)
+        {
+            perror("error send: ");
+        }
     }
     return bytes_sent;
 }
@@ -754,6 +791,7 @@ void client_receive_message(client_agent *m_agent, message *m)
 
 void update_client_agent(client_agent* m_agent)
 {
+
     FD_ZERO(&m_agent->read_fds);
     FD_ZERO(&m_agent->write_fds);
 
@@ -764,7 +802,6 @@ void update_client_agent(client_agent* m_agent)
     m_agent->timeout.tv_usec = 10;
 
     int ready = select(m_agent->m_sockfd + 1, &m_agent->read_fds, &m_agent->write_fds, NULL, &m_agent->timeout);
-    // if (ready <= 0) return;
 
     memset(g_recvbuf, 0, sizeof(message));
     if (FD_ISSET(m_agent->m_sockfd, &m_agent->read_fds)) 
@@ -788,7 +825,7 @@ void update_client_agent(client_agent* m_agent)
             return;
         }
     }
-    
+
     while(!queue_is_empty(m_agent->received_messages))
     {
         char message_buffer[sizeof(message)] = {0};
@@ -809,22 +846,17 @@ void update_client_agent(client_agent* m_agent)
 
     while(!queue_is_empty(m_agent->to_send_non_reliable))
     {
-        if (FD_ISSET(m_agent->m_sockfd, &m_agent->write_fds))
-        {
-            char buffer[sizeof(message)] = {0};
-            message *m = queue_dequeue(m_agent->to_send_non_reliable);
-
-            PGGKEC_LOG("msg sent [NO-RELIABLE]: ");
-            print_message(m);
-
-            memcpy(buffer, m, sizeof(message));
-            send_as_client(m_agent->m_sockfd, buffer);
-            free(m);
-        }
+        FD_SET(m_agent->m_sockfd, &m_agent->write_fds);
+        char buffer[sizeof(message)] = {0};
+        message *m = queue_dequeue(m_agent->to_send_non_reliable);
+        PGGKEC_LOG("msg sent [NO-RELIABLE]: ");
+        print_message(m);
+        memcpy(buffer, m, sizeof(message));
+        send_as_client(m_agent->m_sockfd, buffer);
+        free(m);
     }
 
     if(vector_is_empty(m_agent->to_send_messages)) return;
-
 
     for(int i=0; i<m_agent->to_send_messages->total; i++)
     {
@@ -913,7 +945,18 @@ void server_broadcast_message(server_agent *m_agent, char *buff)
         {
             const char* ip = inet_ntoa(((connection*)vector_get(m_agent->connections, i))->addr.sin_addr);
             PGGKEC_LOG("sending message to: %s\n", ip);
-            send_to(&(m_agent->m_sockfd), (struct sockaddr*)&(((connection*)vector_get(m_agent->connections, i))->addr), buff);
+            connection *conn = (connection*)vector_get(m_agent->connections, i);
+            struct sockaddr *tmp = (struct sockaddr *)&conn->addr;
+            int bytes_sent = sendto(m_agent->m_sockfd, buff, sizeof(message), 0, tmp, sizeof(struct sockaddr_in));
+            if (bytes_sent == -1) 
+            {
+                perror("error sendto wa: ");
+                bytes_sent = send(m_agent->m_sockfd, buff, sizeof(message), 0);
+                if(bytes_sent == -1)
+                {
+                    perror("error send: ");
+                }
+            }
         }
     }
 }
