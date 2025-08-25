@@ -29,7 +29,7 @@ include_directories(
 add_definitions(-DVERBOSE)
 
 add_executable(${PROJECT_NAME}
-  source/client.c
+  source/main.c
   common/debugScreen.c
 )
 
