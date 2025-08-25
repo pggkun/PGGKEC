@@ -1,6 +1,6 @@
 TARGET 		:= udp_windows
 CC 		  	:= gcc -DVERBOSE
-LDFLAGS		:= C:/MinGW/lib/libpthread.a -lws2_32
+LDFLAGS		:= -lws2_32
 IFLAGS		:= -I$(CURDIR)/../../include -IC:/MinGW/include
 BUILD 		:= build
 
