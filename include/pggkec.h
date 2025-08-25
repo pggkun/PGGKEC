@@ -94,6 +94,39 @@ SOFTWARE.
     typedef int socket_t;
     #define SOCKLEN_T socklen_t
     #define INVALID_SOCKET -1
+#elif defined(__SWITCH__)
+    #include <switch.h>
+    typedef Thread thread_t;
+    typedef Mutex mutex_t;
+
+    #define STACKSIZE (64 * 1024)
+    #ifndef THREAD_PRIO
+    #define THREAD_PRIO 0x3B
+    #endif
+    #ifndef THREAD_CPU
+    #define THREAD_CPU  (1)
+    #endif
+
+    #define THREAD_FUNC_RETURN void
+    #define THREAD_CREATE(t, func, param) \
+        Result res = threadCreate(t, func, param, NULL, STACKSIZE, THREAD_PRIO, THREAD_CPU); \
+        printf("res create: %d\n", res); res = threadStart(t); printf("res start: %d\n", res);
+    #define THREAD_JOIN(t) \
+        threadWaitForExit(t)
+    #define MUTEX_INIT(m) mutexInit(m)
+    #define MUTEX_DESTROY(m) do {} while(0)
+    #define MUTEX_LOCK(m) mutexTryLock(m)
+    #define MUTEX_UNLOCK(m) mutexUnlock(m)
+
+    #include <sys/ioctl.h>
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <unistd.h>
+    #define closeSocket close
+    typedef int socket_t;
+    #define SOCKLEN_T socklen_t
+    #define INVALID_SOCKET -1
 #else
     #include <pthread.h>
     typedef pthread_t thread_t;
@@ -408,7 +441,7 @@ socket_t create_server_socket()
         int flags = fcntl(sockfd, F_GETFL, 0);
         flags |= O_NONBLOCK;
         fcntl(sockfd, F_SETFL, flags);
-    #elif defined(__3DS__)
+    #elif defined(__3DS__) || defined(__SWITCH__)
         fcntl(sockfd, F_SETFL, fcntl(sockfd, F_GETFL, 0) | O_NONBLOCK);
     #else
         struct timeval tv = { .tv_sec = 0, .tv_usec = 200*1000 };
@@ -1165,7 +1198,7 @@ THREAD_FUNC_RETURN update_messages_as_server(void *agent_addr)
     {
         if (!fgets(line, sizeof(line), stdin))
         {
-        #ifdef __3DS__
+        #if defined(__3DS__) || defined(__SWITCH__)
             return;
         #else    
             return 0;
@@ -1210,7 +1243,7 @@ THREAD_FUNC_RETURN update_messages_as_client(void *agent_addr)
     {
         if (!fgets(line, sizeof(line), stdin))
         {
-        #ifdef __3DS__
+        #if defined(__3DS__) || defined(__SWITCH__)
             return;
         #else    
             return 0;
