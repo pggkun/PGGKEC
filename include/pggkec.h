@@ -151,6 +151,48 @@ SOFTWARE.
     #define INVALID_SOCKET -1
 #endif
 
+#if defined(_WIN32) || defined(_WIN64)
+  #define NOMINMAX
+  #include <windows.h>
+#elif defined(__PSP__)
+  #include <pspthreadman.h>
+#else
+  #include <time.h>
+#endif
+
+static inline double monotonic_seconds(void) {
+#if defined(_WIN32) || defined(_WIN64)
+    static LARGE_INTEGER freq = {0};
+    LARGE_INTEGER now;
+    if (freq.QuadPart == 0) QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&now);
+    return (double)now.QuadPart / (double)freq.QuadPart;
+
+#elif defined(__PSP__)
+    SceInt64 us = sceKernelGetSystemTimeWide();
+    return (double)us / 1e6;
+
+#elif defined(_3DS) || defined(__3DS__)
+    #ifdef TICKS_PER_MSEC
+        u64 ticks = svcGetSystemTick();
+        double ms = (double)ticks / (double)TICKS_PER_MSEC;
+        return ms / 1000.0;
+    #else
+        u64 ms = osGetTime();
+        return (double)ms / 1000.0;
+    #endif
+
+#elif defined(__SWITCH__)
+    u64 ticks = armGetSystemTick();
+    u64 freq  = armGetSystemTickFreq();
+    return (double)ticks / (double)freq;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#endif
+}
+
 #define DATA_BUFFER_SIZE 256
 
 #define DISCOVERY_MSG "DSMSG"
@@ -158,6 +200,8 @@ SOFTWARE.
 #define CONNECTION_MSG "CNMSG"
 #define DISCONNECTION_MSG "DNMSG"
 #define REGULAR_MSG "RGMSG"
+
+#define CONNECTION_TIMEOUT 15.0
 
 typedef struct message
 {
@@ -396,9 +440,24 @@ void fill_buffer(const message *msg, char *buffer)
     memcpy(buffer, msg, sizeof(message));
 }
 
+void print_hex(const void *data, size_t size) 
+{
+    const uint8_t *bytes = (const uint8_t *) data;
+    for (size_t i = 0; i < size; i++) 
+    {
+        PGGKEC_LOG("%02X ", bytes[i]);
+        if ((i + 1) % 16 == 0)
+            PGGKEC_LOG("\n");
+    }
+    if (size % 16 != 0)
+        PGGKEC_LOG("\n");
+}
+
 void print_message(const message * msg)
 {
-    PGGKEC_LOG("src: %d, destiny: %d, index: %d, data=\"%s\"\n", msg->source, msg->destiny, msg->index, msg->data);
+    PGGKEC_LOG("src: %d, destiny: %d, index: %d, data: \n", msg->source, msg->destiny, msg->index, msg->data);
+    print_hex(msg->data, DATA_BUFFER_SIZE);
+    PGGKEC_LOG("\n");
 }
 
 #define PORT 9999
@@ -413,6 +472,7 @@ typedef struct connection
     uint8_t message_index;
     struct sockaddr_in addr;
     char device[12];
+    double last_seen;
 } connection;
 
 int send_as_client(socket_t sockfd, char *buffer);
@@ -536,22 +596,29 @@ int after_receive_as_server(socket_t *sockfd,
     free(received_message);
 
     for (size_t i = 0; i < vector_size(*connections); i++) {
-        const connection *conn = vector_get(*connections, i);
+        connection *conn = vector_get(*connections, i);
         if (temp_addr->sin_addr.s_addr == conn->addr.sin_addr.s_addr &&
             temp_addr->sin_port        == conn->addr.sin_port)
         {
-            
             already_connected = 1;
+            conn->last_seen = monotonic_seconds();
             break;
         }
     }
     if (!already_connected) {
-        uint8_t new_id = (uint8_t)(vector_size(*connections) + 1);
+        uint8_t new_id = 1;
+        
+        if(vector_size(*connections) > 0)
+        {
+            connection *last_conn = vector_get(*connections, vector_size(*connections) - 1);
+            new_id = last_conn->id + 1;
+        }
 
         connection* new_conn = malloc(sizeof(connection));
         new_conn->id = new_id;
         new_conn->message_index = 1;
         new_conn->addr = *temp_addr;
+        new_conn->last_seen = monotonic_seconds();
         strcpy(new_conn->device, "UNKNOWN");
 
         vector_push_back(*connections, new_conn);
@@ -657,6 +724,8 @@ typedef struct client_agent
     struct timeval timeout;
 
     void (*message_callback)(void *, void *);
+
+    double last_sent;
 } client_agent;
 
 void set_client_callback(client_agent* agent, void *func)
@@ -667,6 +736,37 @@ void set_client_callback(client_agent* agent, void *func)
 void set_server_callback(server_agent* agent, void *func)
 {
     agent->message_callback = func;
+}
+
+void update_connections(server_agent* agent)
+{
+    uint8_t to_remove = 0;
+    for (size_t i = 0; i < vector_size((agent->connections)); i++) 
+    {
+        connection *conn = vector_get((agent->connections), i);
+
+        if (monotonic_seconds() - conn->last_seen > CONNECTION_TIMEOUT)
+        {
+            to_remove += 1;
+        }
+    }
+
+    for(int i=0; i < to_remove; i++)
+    {
+        uint8_t remove_index = 0;
+        for (size_t j = 0; j < vector_size(agent->connections); j++)
+        {
+            connection *conn = vector_get((agent->connections), j);
+            if (monotonic_seconds() - conn->last_seen > 10.0)
+            {
+                remove_index = j;
+                break;
+            }
+        }
+        connection *conn = vector_get((agent->connections), remove_index);
+        PGGKEC_LOG("Removing connection '%d' due to inactivity\n", conn->id);
+        vector_remove_at(agent->connections, remove_index);
+    }
 }
 
 THREAD_FUNC_RETURN receive_messages_as_server(void *agent_addr) 
@@ -747,6 +847,7 @@ void client_send_message(client_agent *m_agent, const message *m)
         PGGKEC_LOG("sending r-message: ");
         print_message(m);
     }
+    m_agent->last_sent = monotonic_seconds();
 }
 
 void client_send_ack(client_agent *m_agent, const message *m)
@@ -825,6 +926,17 @@ void client_receive_message(client_agent *m_agent, message *m)
 void update_client_agent(client_agent* m_agent)
 {
 
+    if(monotonic_seconds() - m_agent->last_sent > CONNECTION_TIMEOUT / 2.0)
+    {
+        message *m = malloc(sizeof(message));
+        m->source = m_agent->uid;
+        m->destiny = 0;
+        m->index = 0;
+        strcpy(m->data, "heartbeat");
+
+        queue_enqueue(m_agent->to_send_non_reliable, m);
+    }
+
     FD_ZERO(&m_agent->read_fds);
     FD_ZERO(&m_agent->write_fds);
 
@@ -875,6 +987,7 @@ void update_client_agent(client_agent* m_agent)
     {
         queue_dequeue(m_agent->to_send_acks);
         m_agent->total_ack_sent++;
+        m_agent->last_sent = monotonic_seconds();
     }
 
     while(!queue_is_empty(m_agent->to_send_non_reliable))
@@ -887,6 +1000,7 @@ void update_client_agent(client_agent* m_agent)
         memcpy(buffer, m, sizeof(message));
         send_as_client(m_agent->m_sockfd, buffer);
         free(m);
+        m_agent->last_sent = monotonic_seconds();
     }
 
     if(vector_is_empty(m_agent->to_send_messages)) return;
@@ -899,6 +1013,7 @@ void update_client_agent(client_agent* m_agent)
             memcpy(buffer, vector_get(m_agent->to_send_messages,i), sizeof(message));
             send_as_client(m_agent->m_sockfd, buffer);
             m_agent->total_message_sent++;
+            m_agent->last_sent = monotonic_seconds();
         }
     }
 }
@@ -1105,6 +1220,8 @@ void server_receive_message(server_agent *m_agent, message *m)
 
 void server_update(server_agent *m_agent)
 {
+    update_connections(m_agent);
+
     MUTEX_LOCK(&received_messages_mutex);
     while(!queue_is_empty(m_agent->received_messages))
     {
