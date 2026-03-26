@@ -202,9 +202,11 @@ static inline double monotonic_seconds(void) {
 #define REGULAR_MSG "RGMSG"
 
 #define CONNECTION_TIMEOUT 15.0
+#define MAGIC 0x5047474B
 
 typedef struct message
 {
+    uint32_t magic;
     uint8_t source;
     uint8_t destiny; //if client: 0 = Server, if server: 0 = ALL
     uint8_t index; //0 = not reliable
@@ -455,7 +457,7 @@ void print_hex(const void *data, size_t size)
 
 void print_message(const message * msg)
 {
-    PGGKEC_LOG("src: %d, destiny: %d, index: %d, data: \n", msg->source, msg->destiny, msg->index, msg->data);
+    PGGKEC_LOG("magic: %x, src: %d, destiny: %d, index: %d, data: \n", msg->magic, msg->source, msg->destiny, msg->index, msg->data);
     print_hex(msg->data, DATA_BUFFER_SIZE);
     PGGKEC_LOG("\n");
 }
@@ -551,12 +553,18 @@ int receive_from(socket_t *sockfd, char *buffer, struct sockaddr* caddr, socklen
 
 int send_as_server(socket_t *sockfd, char *buffer)
 {
+    uint32_t magic = MAGIC;
+    memcpy(buffer, &magic, sizeof(magic));
+
     return sendto(*sockfd, buffer, sizeof(message), 0, 
           (struct sockaddr*)&cliaddr, sizeof(cliaddr));
 }
 
 int send_to(socket_t *sockfd, struct sockaddr* client, char *buffer)
 {
+    uint32_t magic = MAGIC;
+    memcpy(buffer, &magic, sizeof(magic));
+
     int bytes_sent = sendto(*sockfd, buffer, sizeof(message), 0, 
           client, sizeof(*client));
     if (bytes_sent == -1) 
@@ -637,6 +645,9 @@ int after_receive_as_server(socket_t *sockfd,
         char response[sizeof(message)];
         memcpy(response, &resp, sizeof(message));
 
+        uint32_t magic = MAGIC;
+        memcpy(response, &magic, sizeof(magic));
+
         int bytes_sent = sendto(*sockfd, response, sizeof(message), 0, 
           (struct sockaddr*)temp_addr, sizeof(*temp_addr));
         if (bytes_sent == -1) 
@@ -655,6 +666,9 @@ int after_receive_as_server(socket_t *sockfd,
 
 int send_as_client(socket_t sockfd, char *buffer)
 {
+    uint32_t magic = MAGIC;
+    memcpy(buffer, &magic, sizeof(magic));
+
     int bytes_sent = sendto(sockfd, buffer, sizeof(message), 0, (struct sockaddr*)&servaddr, sizeof(servaddr)); 
     if (bytes_sent == -1) 
     {
@@ -792,6 +806,16 @@ THREAD_FUNC_RETURN receive_messages_as_server(void *agent_addr)
         if (recv > 0) 
         {
             MUTEX_LOCK(&received_messages_mutex);
+
+            uint32_t magic;
+            memcpy(&magic, g_recvbuf, 4);
+
+            if(magic != MAGIC)
+            {
+                PGGKEC_LOG("Bad Magic packet :%x : %d.\n", ntohl(magic), magic);
+                continue;
+            }
+
             int result = after_receive_as_server(&m_agent->m_sockfd, &(m_agent->connections), g_recvbuf, &temp_addr);
             if (result != 0) {
                 message *m = malloc(sizeof(message));
@@ -956,9 +980,18 @@ void update_client_agent(client_agent* m_agent)
 
         SOCKLEN_T srclen = (SOCKLEN_T)sizeof(src);
 
-        int recv = recvfrom(m_agent->m_sockfd, (char*)g_recvbuf, 259, 0, (struct sockaddr*)&src, &srclen);
+        int recv = recvfrom(m_agent->m_sockfd, (char*)g_recvbuf, sizeof(message), 0, (struct sockaddr*)&src, &srclen);
         if (recv > 0) 
         {
+            uint32_t magic;
+            memcpy(&magic, g_recvbuf, 4);
+
+            if(magic != MAGIC)
+            {
+                PGGKEC_LOG("Bad Magic packet :%x : %d.\n", ntohl(magic), magic);
+                return;
+            }
+
             message *m = malloc(sizeof(message));
             memcpy(m, g_recvbuf, sizeof(message));
             queue_enqueue(m_agent->received_messages, m);
@@ -1095,6 +1128,9 @@ void server_broadcast_message(server_agent *m_agent, char *buff)
             PGGKEC_LOG("sending message to: %s\n", ip);
             connection *conn = (connection*)vector_get(m_agent->connections, i);
             struct sockaddr *tmp = (struct sockaddr *)&conn->addr;
+            uint32_t magic = MAGIC;
+            memcpy(buff, &magic, sizeof(magic));
+
             int bytes_sent = sendto(m_agent->m_sockfd, buff, sizeof(message), 0, tmp, sizeof(struct sockaddr_in));
             if (bytes_sent == -1) 
             {
@@ -1123,6 +1159,7 @@ void server_send_ack(server_agent *m_agent, const message *m)
 
 void server_send_message(server_agent *m_agent, message *m)
 {
+    m->magic = MAGIC;
     m->source = 0;
     if(m->index == 0)
     {
@@ -1329,6 +1366,7 @@ THREAD_FUNC_RETURN update_messages_as_server(void *agent_addr)
 
         message m;
         memset(&m, 0, sizeof(m));
+        m.magic = MAGIC;
 
         if (line[0] == 'R') 
         {
@@ -1374,6 +1412,7 @@ THREAD_FUNC_RETURN update_messages_as_client(void *agent_addr)
 
         message *m = malloc(sizeof(message));
         memset(m, 0, sizeof(message));
+        m->magic = MAGIC;
 
         if (line[0] == 'R') 
         {
@@ -1403,6 +1442,7 @@ THREAD_FUNC_RETURN update_messages_as_client(void *agent_addr)
 void client_agent_enqueue_non_reliable(client_agent* m_agent, uint8_t source, uint8_t destiny, uint8_t index, const char* data)
 {
     message *m = malloc(sizeof(message));
+    m->magic = MAGIC;
     m->source = source;
     m->destiny = destiny;
     m->index = index;
@@ -1413,6 +1453,7 @@ void client_agent_enqueue_non_reliable(client_agent* m_agent, uint8_t source, ui
 void server_agent_broadcast_message(server_agent* m_agent, const char* data)
 {
     message m;
+    m.magic = MAGIC;
     m.source = 0;
     m.destiny = 0;
     m.index = 0;
