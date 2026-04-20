@@ -204,6 +204,18 @@ static inline double monotonic_seconds(void) {
 #define CONNECTION_TIMEOUT 15.0
 #define MAGIC 0x5047474B
 
+#ifndef MAX_CONNECTIONS
+    #define MAX_CONNECTIONS 4
+#endif
+
+#ifndef QUEUE_SIZE
+    #define QUEUE_SIZE 64
+#endif
+
+#ifndef SERVER_QUEUE_SIZE
+    #define SERVER_QUEUE_SIZE (QUEUE_SIZE * MAX_CONNECTIONS)
+#endif
+
 typedef struct message
 {
     uint32_t magic;
@@ -840,10 +852,10 @@ client_agent *create_client_agent(const char *ip)
     ca->m_sockfd = create_client_socket(ip);
     ca->connected = 0;
 
-    ca->received_messages = queue_create(64);
-    ca->to_send_acks = queue_create(64);
-    ca->to_send_non_reliable = queue_create(64);
-    ca->to_send_messages = vector_create(64);
+    ca->received_messages = queue_create(QUEUE_SIZE);
+    ca->to_send_acks = queue_create(QUEUE_SIZE);
+    ca->to_send_non_reliable = queue_create(QUEUE_SIZE);
+    ca->to_send_messages = vector_create(QUEUE_SIZE);
 
     PGGKEC_LOG("Pointing to: %s\n", ip);
     return ca;
@@ -1097,10 +1109,10 @@ server_agent *create_server_agent()
     sa->m_sockfd = create_server_socket();
     sa->connected = 1;
 
-    sa->connections = vector_create(5);
-    sa->received_messages = queue_create(64);
-    sa->to_send_acks = queue_create(64);
-    sa->to_send_messages = vector_create(64);
+    sa->connections = vector_create(MAX_CONNECTIONS);
+    sa->received_messages = queue_create(SERVER_QUEUE_SIZE);
+    sa->to_send_acks = queue_create(SERVER_QUEUE_SIZE);
+    sa->to_send_messages = vector_create(SERVER_QUEUE_SIZE);
 
     THREAD_CREATE(&sa->listen_thread, receive_messages_as_server, sa);
     PGGKEC_LOG("Listen Thread created successfully!\n");
