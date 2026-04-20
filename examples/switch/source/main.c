@@ -91,7 +91,7 @@ void server_behaviour()
         if(kDown & HidNpadButton_A)
         {
             message *m = malloc(sizeof(message));
-            *m = (message){my_agent->uid, 0, 0, "Hello from Switch Server"};
+            *m = (message){my_agent->uid, 0, 0, (unsigned char)"Hello from Switch Server"};
             server_send_message(my_agent, m);
             consoleUpdate(NULL);
         }
