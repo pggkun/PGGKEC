@@ -105,7 +105,7 @@ void client_behaviour()
         if (kDown & KEY_A)
         {
             message *m = malloc(sizeof(message));
-            *m = (message){my_agent->uid, 0, 0, "Hello from 3DS"};
+            *m = (message){my_agent->uid, 0, 0, (unsigned char)"Hello from 3DS"};
             queue_enqueue(my_agent->to_send_non_reliable, m);
         }
 
@@ -135,7 +135,7 @@ void server_behaviour()
         if (kDown & KEY_A)
         {
             message *m = malloc(sizeof(message));
-            *m = (message){my_agent->uid, 0, 0, "Hello from 3DS Server"};
+            *m = (message){my_agent->uid, 0, 0, (unsigned char)"Hello from 3DS Server"};
             server_send_message(my_agent, m);
         }
         server_update(my_agent);
