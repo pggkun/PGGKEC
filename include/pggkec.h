@@ -94,6 +94,45 @@ SOFTWARE.
     typedef int socket_t;
     #define SOCKLEN_T socklen_t
     #define INVALID_SOCKET -1
+#elif defined(HW_RVL)
+
+    #include <gccore.h>
+    #include <ogcsys.h>
+    #include <network.h>
+    #include <ogc/lwp.h>
+    #include <unistd.h>
+
+    typedef lwp_t thread_t;
+    typedef mutex_t mutex_t;
+
+    #define STACKSIZE (16*1024)
+    #define THREAD_FUNC_RETURN void*
+
+    #define THREAD_CREATE(t, func, param) \
+        LWP_CreateThread((t), func, param, NULL, STACKSIZE, 50)
+    #define THREAD_JOIN(t) \
+        LWP_JoinThread(*(t), NULL)
+    #define MUTEX_INIT(m) \
+        LWP_MutexInit((m), false)
+    #define MUTEX_DESTROY(m) \
+        LWP_MutexDestroy(*(m))
+    #define MUTEX_LOCK(m) \
+        LWP_MutexLock(*(m))
+    #define MUTEX_UNLOCK(m) \
+        LWP_MutexUnlock(*(m))
+    #define socket net_socket
+    #define bind net_bind
+    #define setsockopt net_setsockopt
+    #define connect net_connect
+    #define recvfrom net_recvfrom
+    #define sendto net_sendto
+    #define send net_send
+    #define closeSocket net_close
+    #define select net_select
+    #define sockaddr_storage sockaddr
+    typedef int socket_t;
+    #define SOCKLEN_T socklen_t
+    #define INVALID_SOCKET (-1)
 #elif defined(__SWITCH__)
     #include <switch.h>
     typedef Thread thread_t;
